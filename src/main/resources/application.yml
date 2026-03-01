@@ -1,0 +1,12 @@
+server:
+  port: 8080
+
+provider:
+  base-url: http://localhost:8081
+
+springdoc:
+  swagger-ui:
+    url: /openapi.yaml       # point Swagger UI at our hand-written spec
+    path: /swagger-ui.html
+  api-docs:
+    enabled: false           # disable auto-generation — spec is the source of truth

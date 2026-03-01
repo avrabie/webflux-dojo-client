@@ -1,0 +1,101 @@
+openapi: 3.0.3
+
+info:
+  title: Best Price API
+  description: |
+    Returns the best (lowest) stock price for a given ticker,
+    aggregated from three independent price providers.
+
+    **This is the contract you need to implement.**
+
+    The three providers are running on `http://localhost:8081`:
+    - `GET /provider/alpha/price/{ticker}` — fast (100–300ms), occasionally wrong
+    - `GET /provider/beta/price/{ticker}`  — slow (400–700ms), always correct
+    - `GET /provider/gamma/price/{ticker}` — medium (200–500ms), 20% chance of HTTP 503
+
+    Supported tickers: `AAPL`, `GOOGL`, `MSFT`, `AMZN`, `TSLA`, `NVDA`, `META`, `NFLX`, `UBS`
+  version: 1.0.0
+
+servers:
+  - url: http://localhost:8080
+    description: Student app (your implementation)
+
+paths:
+  /best-price/{ticker}:
+    get:
+      summary: Get the best price for a stock ticker
+      description: |
+        Queries all three providers concurrently and returns the response
+        with the lowest price.
+
+        Constraints (implemented progressively during the kata):
+        - **Level 1** — all providers respond; return the lowest price
+        - **Level 2** — drop any provider that doesn't respond within 600ms
+        - **Level 3** — retry gamma on HTTP 503, within the 600ms budget
+        - **Level 4** — if all providers fail, return the last cached price
+      operationId: getBestPrice
+      parameters:
+        - name: ticker
+          in: path
+          required: true
+          description: Stock ticker symbol (case-insensitive)
+          schema:
+            type: string
+            example: AAPL
+      responses:
+        '200':
+          description: Best price found across all responding providers
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BestPriceResponse'
+              examples:
+                aapl:
+                  summary: AAPL example
+                  value:
+                    ticker: AAPL
+                    provider: BETA
+                    price: 189.42
+                    timestamp: "2026-02-28T10:15:30Z"
+        '500':
+          description: All providers failed and no cached price is available
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+components:
+  schemas:
+    BestPriceResponse:
+      type: object
+      required: [ticker, provider, price, timestamp]
+      properties:
+        ticker:
+          type: string
+          description: The requested stock ticker
+          example: AAPL
+        provider:
+          type: string
+          description: Which provider returned this price
+          enum: [ALPHA, BETA, GAMMA]
+          example: BETA
+        price:
+          type: number
+          format: double
+          description: The best (lowest) price found
+          example: 189.42
+        timestamp:
+          type: string
+          format: date-time
+          description: When the price was recorded by the provider
+          example: "2026-02-28T10:15:30Z"
+
+    ErrorResponse:
+      type: object
+      properties:
+        status:
+          type: integer
+          example: 500
+        message:
+          type: string
+          example: All providers failed and no cached price is available for AAPL
