@@ -23,7 +23,7 @@ public class BestPriceService {
             Comparator.comparingDouble(BestPriceResponse::price);
     private final ProviderClient providerClient;
     // Level 4: last known best price per ticker
-    private final Map<String, BestPriceResponse> cache = new ConcurrentHashMap<>();
+    private final Map<String, Mono<BestPriceResponse>> cache = new ConcurrentHashMap<>();
 
     public BestPriceService(ProviderClient providerClient) {
         this.providerClient = providerClient;
@@ -76,14 +76,29 @@ public class BestPriceService {
      */
     public Mono<BestPriceResponse> bestPrice(String ticker) {
         return Flux.merge(
-                        providerClient.alphaPrice(ticker).timeout(Duration.ofMillis(600)).onErrorResume(e -> Mono.empty()),
-                        providerClient.betaPrice(ticker).timeout(Duration.ofMillis(600)).onErrorResume(e -> Mono.empty()),
-                        providerClient.gammaPrice(ticker).timeout(Duration.ofMillis(600)).onErrorResume(e -> Mono.empty())
+                        providerClient.alphaPrice(ticker)
+                                .timeout(Duration.ofMillis(600))
+                                .onErrorResume(e -> Mono.empty()),
+                        providerClient.betaPrice(ticker)
+                                .timeout(Duration.ofMillis(600))
+                                .onErrorResume(e -> Mono.empty()),
+                        providerClient.gammaPrice(ticker)
+                                .retryWhen(Retry.backoff(3, Duration.ofMillis(100)))
+                                .timeout(Duration.ofMillis(600))
+                                .onErrorResume(e -> Mono.empty())
                 )
                 .map(BestPriceResponse::from)
                 .collectList()
-                .flatMap(list -> list.isEmpty()
-                        ? Mono.error(new RuntimeException("No provider responded in time"))
-                        : Mono.just(list.stream().min(BY_PRICE).get()));
+                .flatMap(list -> {
+                    if (list.isEmpty()) {
+                        return Mono.justOrEmpty(cache.get(ticker))
+                                .flatMap(mono -> mono)
+                                .switchIfEmpty(Mono.error(new RuntimeException("No provider responded in time")));
+                    }
+                    BestPriceResponse best = list.stream().min(BY_PRICE).get();
+                    Mono<BestPriceResponse> cachedMono = Mono.just(best).cache();
+                    cache.put(ticker, cachedMono);
+                    return cachedMono;
+                });
     }
 }
